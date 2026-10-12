@@ -5,6 +5,8 @@ import { useFeedback } from '../components/Feedback'
 import { Modal } from '../components/Modal'
 import { EmptyState, ErrorState, LoadingState, PageHeader } from '../components/States'
 import { TaskCard } from '../components/TaskCard'
+import { TaskQuadrants } from '../components/TaskQuadrants'
+import type { TodaySnapshot } from '../../domain'
 import { useTaskComposer } from '../components/TaskComposer'
 import { formatDate } from '../utils/date'
 
@@ -13,6 +15,9 @@ export function TodayPage({ today }: { today: string }) {
   const [reviewOpen, setReviewOpen] = useState(false)
   const [quickTitle, setQuickTitle] = useState('')
   const [quickBusy, setQuickBusy] = useState(false)
+  const [taskView, setTaskView] = useState<'LIST' | 'QUADRANTS'>(() => {
+    try { return localStorage.getItem('personal-todo.today-task-view') === 'LIST' ? 'LIST' : 'QUADRANTS' } catch { return 'QUADRANTS' }
+  })
   const quickInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
   const { notify } = useFeedback()
@@ -21,6 +26,10 @@ export function TodayPage({ today }: { today: string }) {
   useEffect(() => {
     if (!quickBusy) quickInputRef.current?.focus()
   }, [quickBusy])
+
+  useEffect(() => {
+    try { localStorage.setItem('personal-todo.today-task-view', taskView) } catch { /* Keep the view usable when storage is unavailable. */ }
+  }, [taskView])
 
   if (snapshot.isLoading) return <PageFrame><LoadingState /></PageFrame>
   if (snapshot.isError || !snapshot.data) return <PageFrame><ErrorState error={snapshot.error} onRetry={() => snapshot.refetch()} /></PageFrame>
@@ -73,14 +82,27 @@ export function TodayPage({ today }: { today: string }) {
         <button type="button" className="mini-button" onClick={() => composer.create({ plannedOn: today, title: quickTitle.trim() || undefined })}>手动添加</button>
       </form>
 
-      <TaskSection
-        title="今日任务"
-        count={data.todayTasks.length}
-        tasks={data.todayTasks}
-        today={today}
-        emptyTitle="今天还没有任务"
-        todayRow
-      />
+      <section className="content-section">
+        <header className="section-heading today-tasks-heading">
+          <div><h2>今日任务 <span className="count-badge">{data.todayTasks.length}</span></h2></div>
+          <div className="today-view-toggle" role="group" aria-label="今日任务展示方式">
+            <button type="button" aria-pressed={taskView === 'QUADRANTS'} onClick={() => setTaskView('QUADRANTS')}>四象限分组</button>
+            <button type="button" aria-pressed={taskView === 'LIST'} onClick={() => setTaskView('LIST')}>列表</button>
+          </div>
+        </header>
+        {taskView === 'QUADRANTS' && data.todayTasks.length > 0 && <p className="today-quadrant-hint">按 Q1 → Q2 → Q3 → Q4 分组，可拖动任务到其他分组。</p>}
+        {!data.todayTasks.length ? <EmptyState icon="✓" title="今天还没有任务" /> : taskView === 'QUADRANTS' ? (
+          <TaskQuadrants
+            tasks={data.todayTasks}
+            today={today}
+            todayRows
+            onTaskUpdated={(updated) => queryClient.setQueryData<TodaySnapshot>(['today', today], (current) => current ? {
+              ...current,
+              todayTasks: current.todayTasks.map((task) => task.id === updated.id ? updated : task)
+            } : current)}
+          />
+        ) : <div className="task-stack task-stack--today">{data.todayTasks.map((task) => <TaskCard key={task.id} task={task} today={today} todayRow />)}</div>}
+      </section>
       {data.overdue.length > 0 && (
         <TaskSection
           tone="danger"
@@ -89,6 +111,7 @@ export function TodayPage({ today }: { today: string }) {
           tasks={data.overdue}
           today={today}
           emptyTitle=""
+          showScheduleToday
         />
       )}
       <details className="completed-section" open={data.completedToday.length > 0}>
@@ -102,21 +125,21 @@ export function TodayPage({ today }: { today: string }) {
   )
 }
 
-function TaskSection({ tone, title, count, tasks, today, emptyTitle, todayRow }: {
+function TaskSection({ tone, title, count, tasks, today, emptyTitle, showScheduleToday }: {
   tone?: 'danger'
   title: string
   count: number
   tasks: Parameters<typeof TaskCard>[0]['task'][]
   today: string
   emptyTitle: string
-  todayRow?: boolean
+  showScheduleToday?: boolean
 }) {
   return (
     <section className={`content-section${tone ? ` content-section--${tone}` : ''}`}>
       <header className="section-heading">
         <div><h2>{title} <span className="count-badge">{count}</span></h2></div>
       </header>
-      {tasks.length ? <div className={todayRow ? 'task-stack task-stack--today' : 'task-stack'}>{tasks.map((task) => <TaskCard task={task} today={today} todayRow={todayRow} key={task.id} />)}</div> : <EmptyState icon="✓" title={emptyTitle} />}
+      {tasks.length ? <div className="task-stack">{tasks.map((task) => <TaskCard task={task} today={today} showScheduleToday={showScheduleToday} key={task.id} />)}</div> : <EmptyState icon="✓" title={emptyTitle} />}
     </section>
   )
 }
@@ -138,7 +161,7 @@ function MorningReview({ open, today, onClose }: { open: boolean; today: string;
             ))}</div> : <p className="quiet-copy">昨天没有完成或取消记录。</p>}
           </ReviewBlock>
           <ReviewBlock step="2" title="处理遗留" count={review.data.overdue.length}>
-            {review.data.overdue.length ? <div className="task-stack">{review.data.overdue.map((task) => <TaskCard task={task} today={today} compact key={task.id} />)}</div> : <p className="quiet-copy">没有遗留事项。</p>}
+            {review.data.overdue.length ? <div className="task-stack">{review.data.overdue.map((task) => <TaskCard task={task} today={today} compact showScheduleToday key={task.id} />)}</div> : <p className="quiet-copy">没有遗留事项。</p>}
           </ReviewBlock>
           <ReviewBlock step="3" title="浏览待分配" count={review.data.planning.length}>
             {review.data.planning.length ? <div className="task-stack">{review.data.planning.slice(0, 8).map((task) => <TaskCard task={task} today={today} compact key={task.id} />)}</div> : <p className="quiet-copy">待分配已经清空。</p>}

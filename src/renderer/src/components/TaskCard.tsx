@@ -15,6 +15,7 @@ export interface TaskCardViewProps {
   selected?: boolean
   busy?: boolean
   hideRestoreAction?: boolean
+  showScheduleToday?: boolean
   onOpen?: () => void
   onToggleDone?: () => void
   onCancel?: () => void
@@ -48,6 +49,7 @@ export function TaskCardView({
   selected,
   busy,
   hideRestoreAction,
+  showScheduleToday,
   onOpen,
   onToggleDone,
   onCancel,
@@ -74,7 +76,7 @@ export function TaskCardView({
         {isDone ? '✓' : isCancelled ? '×' : task.hasChildren ? '−' : ''}
       </button>
       {todayRow && hasQuadrant && <QuadrantPips important={task.important} urgent={task.urgent} activeOnly />}
-      <button type="button" className="task-card__main" onClick={onOpen}>
+      <button type="button" className="task-card__main" onClick={onOpen} disabled={busy}>
         <span className="task-card__title-row">
           <strong>{task.title}</strong>
           {task.hasChildren && <span className="tag tag--neutral">父工作 · {task.pendingChildCount} 项待办</span>}
@@ -93,6 +95,9 @@ export function TaskCardView({
         )}
       </button>
       <div className="task-card__actions">
+        {showScheduleToday && task.status === 'TODO' && task.plannedOn && task.plannedOn < today && onSchedule && (
+          <button className="mini-button mini-button--accent" type="button" onClick={() => onSchedule(today)} disabled={busy}>移至今天</button>
+        )}
         {task.status === 'TODO' && onSchedule && (
           scheduling
             ? <InlineDatePicker value={task.plannedOn} onSelect={(value) => { onSchedule(value); setScheduling(false) }} onClose={() => setScheduling(false)} />
@@ -151,12 +156,14 @@ function InlineDatePicker({ value, onSelect, onClose }: {
   )
 }
 
-export function TaskCard({ task, today, compact, todayRow, hideRestoreAction, onChanged }: {
+export function TaskCard({ task, today, compact, todayRow, hideRestoreAction, showScheduleToday, disabled, onChanged }: {
   task: TaskItem
   today: string
   compact?: boolean
   todayRow?: boolean
   hideRestoreAction?: boolean
+  showScheduleToday?: boolean
+  disabled?: boolean
   onChanged?: () => void
 }) {
   const queryClient = useQueryClient()
@@ -211,7 +218,7 @@ export function TaskCard({ task, today, compact, todayRow, hideRestoreAction, on
     setBusy(true)
     try {
       await todoClient.tasks.schedule(task, plannedOn)
-      notify(plannedOn ? `日期已改为 ${plannedOn}` : '已移至待分配', 'success')
+      notify(plannedOn === today ? '已移至今日清单' : plannedOn ? `日期已改为 ${plannedOn}` : '已移至待分配', 'success')
       await refresh()
     } catch (error) {
       notify(apiErrorMessage(error), 'error')
@@ -227,8 +234,9 @@ export function TaskCard({ task, today, compact, todayRow, hideRestoreAction, on
         today={today}
         compact={compact}
         todayRow={todayRow}
-        busy={busy}
+        busy={busy || disabled}
         hideRestoreAction={hideRestoreAction}
+        showScheduleToday={showScheduleToday}
         onOpen={() => composer.edit(task)}
         onToggleDone={() => changeStatus('DONE')}
         onCancel={() => changeStatus('CANCELLED')}

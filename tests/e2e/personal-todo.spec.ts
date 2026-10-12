@@ -205,6 +205,97 @@ test('四象限支持按住任务卡主体拖入其他象限', async () => {
   }
 })
 
+test('晨间复盘改期与今日四象限拖拽在重启后保留', async () => {
+  const localAppData = await createIsolatedLocalAppData()
+  let running: RunningTodoApp | null = null
+  try {
+    running = await launchTodoApp(localAppData)
+    const fixture = await running.page.evaluate(async () => {
+      const bootstrap = await window.todoApi.app.getBootstrap()
+      if (!bootstrap.ok) throw new Error(bootstrap.error.message)
+      const today = bootstrap.data.localDate
+      const date = new Date(`${today}T12:00:00Z`)
+      date.setUTCDate(date.getUTCDate() - 1)
+      const yesterday = date.toISOString().slice(0, 10)
+      const drafts = [
+        { title: '确认今天的发布范围', plannedOn: today, important: true, urgent: true },
+        { title: '推进长期项目', plannedOn: today, important: true },
+        { title: '回复今日消息', plannedOn: today, urgent: true },
+        { title: '整理项目资料', notes: '拖拽后保留这段备注', plannedOn: today },
+        { title: '补齐昨日记录', plannedOn: yesterday }
+      ]
+      const ids: string[] = []
+      for (const draft of drafts) {
+        const result = await window.todoApi.tasks.create(draft)
+        if (!result.ok) throw new Error(result.error.message)
+        ids.push(result.data.value.id)
+      }
+      return { today, yesterday, movedId: ids[3]!, overdueId: ids[4]! }
+    })
+    let page = running.page
+    const artifactDirectory = resolve(import.meta.dirname, '../../artifacts/e2e')
+    await mkdir(artifactDirectory, { recursive: true })
+    await expect(page.getByRole('region', { name: '重要且紧急象限' }).getByText('确认今天的发布范围')).toBeVisible()
+    await expect(page.getByRole('region', { name: '重要不紧急象限' }).getByText('推进长期项目')).toBeVisible()
+    await expect(page.getByRole('region', { name: '不重要但紧急象限' }).getByText('回复今日消息')).toBeVisible()
+    await expect(page.getByRole('region', { name: '不重要不紧急象限' }).getByText('整理项目资料')).toBeVisible()
+
+    await page.getByRole('button', { name: /开始复盘/ }).click()
+    const review = page.getByRole('dialog', { name: '晨间复盘' })
+    await expect(review.getByRole('button', { name: '移至今天' })).toBeVisible()
+    await page.screenshot({ path: join(artifactDirectory, 'morning-review.png'), fullPage: true, animations: 'disabled' })
+    await review.getByRole('button', { name: '移至今天' }).click()
+    await expect(review.getByText('没有遗留事项。')).toBeVisible()
+    await expect(review.getByText('补齐昨日记录')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(review).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: /遗留待处理/ })).toHaveCount(0)
+
+    const source = page.getByRole('region', { name: '不重要不紧急象限' })
+    const destination = page.getByRole('region', { name: '重要且紧急象限' })
+    await source.locator('.task-card__main').filter({ hasText: '整理项目资料' }).dragTo(destination.locator('.quadrant__body'))
+    await expect(destination.getByText('整理项目资料')).toBeVisible()
+    await expect(source.getByText('整理项目资料')).toHaveCount(0)
+    await expect(page.getByText('象限已调整', { exact: true })).toBeVisible()
+
+    const persisted = await page.evaluate(async ({ movedId, overdueId }) => {
+      const moved = await window.todoApi.tasks.getDetail({ id: movedId })
+      const overdue = await window.todoApi.tasks.getDetail({ id: overdueId })
+      if (!moved.ok || !overdue.ok) throw new Error('无法读取修改后的任务')
+      return { moved: moved.data, overdue: overdue.data }
+    }, fixture)
+    expect(persisted.moved).toMatchObject({ plannedOn: fixture.today, important: true, urgent: true, notes: '拖拽后保留这段备注' })
+    expect(persisted.overdue).toMatchObject({ plannedOn: fixture.today, isOverdue: false })
+    expect(persisted.overdue.history).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'SCHEDULE', oldValue: fixture.yesterday, newValue: fixture.today })]))
+
+    await page.getByRole('link', { name: '四象限', exact: true }).click()
+    await expect(page.getByRole('region', { name: '重要且紧急象限' }).getByText('整理项目资料')).toBeVisible()
+    await page.getByRole('link', { name: '今日', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '今天要把什么做好？' })).toBeVisible()
+    await expect(page.locator('.quadrant-grid--today').getByText('整理项目资料')).toBeVisible()
+    await page.getByRole('button', { name: '今天关闭复盘卡片' }).click()
+    await expect(page.locator('.review-banner')).toHaveCount(0)
+    const toastCloseButtons = page.getByRole('button', { name: '关闭提示' })
+    while (await toastCloseButtons.count()) await toastCloseButtons.first().click()
+    await page.screenshot({ path: join(artifactDirectory, 'today-quadrants.png'), fullPage: true, animations: 'disabled' })
+    await page.getByRole('button', { name: '列表', exact: true }).click()
+    await expect(page.getByRole('region', { name: /象限$/ })).toHaveCount(0)
+    await closeTodoApp(running)
+    running = null
+
+    running = await launchTodoApp(localAppData)
+    page = running.page
+    await expect(page.getByRole('button', { name: '列表', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByText('补齐昨日记录')).toBeVisible()
+    await page.getByRole('button', { name: '四象限分组' }).click()
+    await expect(page.getByRole('region', { name: '重要且紧急象限' }).getByText('整理项目资料')).toBeVisible()
+    await expect(page.getByRole('region', { name: '不重要不紧急象限' }).getByText('补齐昨日记录')).toBeVisible()
+  } finally {
+    await closeTodoApp(running)
+    await removeIsolatedLocalAppData(localAppData)
+  }
+})
+
 async function readApplicationLocalDate(application: ElectronApplication): Promise<string> {
   return application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.executeJavaScript(
     'window.todoApi.app.getBootstrap().then(result => result.ok ? result.data.localDate : Promise.reject(new Error(result.error.message)))'

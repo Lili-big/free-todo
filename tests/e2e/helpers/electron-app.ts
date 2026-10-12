@@ -1,7 +1,7 @@
 import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { access, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const workspaceRoot = resolve(import.meta.dirname, '../../..')
 const mainEntry = join(workspaceRoot, 'out', 'main', 'index.js')
@@ -22,14 +22,18 @@ export async function createIsolatedLocalAppData(): Promise<string> {
 
 export async function launchTodoApp(localAppDataRoot: string): Promise<RunningTodoApp> {
   assertSafeTestDirectory(localAppDataRoot)
-  await access(mainEntry)
+  const packagedExecutable = process.env.PERSONAL_TODO_PACKAGED_EXE
+    ? resolve(process.env.PERSONAL_TODO_PACKAGED_EXE)
+    : undefined
+  await access(packagedExecutable ?? mainEntry)
 
   const application = await electron.launch({
     // This Codex host lacks the Windows GPU/sandbox runtime used by Electron
     // child processes. These switches are test-harness compatibility only;
     // production BrowserWindow remains sandbox:true and never receives them.
-    args: ['--no-sandbox', '--disable-gpu', '--disable-gpu-compositing', mainEntry],
-    cwd: workspaceRoot,
+    executablePath: packagedExecutable,
+    args: ['--no-sandbox', '--disable-gpu', '--disable-gpu-compositing', ...(packagedExecutable ? [] : [mainEntry])],
+    cwd: packagedExecutable ? dirname(packagedExecutable) : workspaceRoot,
     env: {
       ...process.env,
       LOCALAPPDATA: localAppDataRoot,

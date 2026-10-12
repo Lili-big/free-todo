@@ -24,6 +24,14 @@ npm run test:e2e
 
 `test:e2e` 会先重新构建应用。所有测试应使用独立临时数据目录，不应读取或修改个人正式数据库。
 
+也可以对已经打包的应用执行同一套端到端测试：
+
+```powershell
+$env:PERSONAL_TODO_PACKAGED_EXE = (Resolve-Path 'release/win-unpacked/逐个锤.exe').Path
+npx playwright test
+Remove-Item Env:PERSONAL_TODO_PACKAGED_EXE
+```
+
 若受限环境中的 Vitest 临时缓存发生 `EPERM` 重命名错误，可在当前 PowerShell 会话中把临时目录设到仓库下再运行：
 
 ```powershell

@@ -418,6 +418,12 @@ export const todoClient = {
       expectedVersion: task.rowVersion,
       plannedOn
     }))),
+    setQuadrant: async (task: TaskItem, important: boolean, urgent: boolean) => normalizeTask(mutationValue(await call('tasks.updateContent', {
+      id: task.id,
+      expectedVersion: task.rowVersion,
+      important,
+      urgent
+    }))),
     setStatus: async (task: TaskItem, status: TaskItem['status'], confirmationToken?: string) => normalizeTask(mutationValue(await call('tasks.changeStatus', {
       id: task.id,
       expectedVersion: task.rowVersion,
