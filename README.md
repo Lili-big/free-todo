@@ -12,7 +12,8 @@
 
 - **今日清单与晨间复盘**：回顾昨日结果，点击“移至今天”快速调整遗留任务，查看待分配事项并确认今日清单（[界面示例](docs/screenshots/morning-review.png)）。
 - **今日四象限分组**：按 Q1 → Q2 → Q3 → Q4 展示今日任务，支持拖拽调整象限归属，也可切换为列表；应用会记住展示方式。
-- **按天计划**：任务按自然日安排；没有日期的任务保留在“待分配”，未完成的历史任务保留原计划日。
+- **开始与完成时间**：按日期填写，可选计划开始时间。只填完成时间时归属完成当天；两者都填时，未完成任务从开始日到完成日持续显示在今日任务中，包含首尾日期（[时间设置界面](docs/screenshots/task-schedule.png)）。
+- **日期归属**：日历只按计划完成日期展示。未填完成时间的任务保留在“待分配”，包括只填开始时间的任务；超过完成日期仍未完成时进入遗留事项。
 - **父子任务**：支持一层父子关系，可挂接已有父任务或新建父任务。
 - **项目与目标**：用项目组织阶段性成果；目标支持自定义分类、P0–P3 优先级和月度、季度、年度或自定义周期。
 - **四象限**：按重要程度和紧急程度整理可执行任务。
@@ -24,9 +25,9 @@
 
 ## 下载与安装
 
-当前版本：**v1.4.0**。支持 **Windows 10/11 x64**，其他操作系统暂未提供安装包。
+当前版本：**v1.5.0**。支持 **Windows 10/11 x64**，其他操作系统暂未提供安装包。
 
-1. 打开 [Releases](https://github.com/Lili-big/free-todo/releases/latest)，下载 `ZhuGeChui-Setup-1.4.0-x64.exe`。
+1. 打开 [Releases](https://github.com/Lili-big/free-todo/releases/latest)，下载 `ZhuGeChui-Setup-1.5.0-x64.exe`。
 2. 运行安装程序，按向导选择安装位置。
 3. 启动“逐个锤”，添加任务即可使用。安装包已包含运行时，不需要安装 Node.js。
 
@@ -35,7 +36,7 @@
 安装包尚未进行代码签名。可下载同一 Release 中的 `SHA256SUMS.txt`，并在 PowerShell 中检查文件哈希是否一致：
 
 ```powershell
-Get-FileHash .\ZhuGeChui-Setup-1.4.0-x64.exe -Algorithm SHA256
+Get-FileHash .\ZhuGeChui-Setup-1.5.0-x64.exe -Algorithm SHA256
 ```
 
 安装包通过 GitHub Releases 分发，源码仓库不包含安装包、依赖目录或个人数据。

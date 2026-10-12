@@ -1,3 +1,5 @@
+import { TASK_PLANNED_START_SQL } from './003-task-planned-start'
+
 export const INITIAL_SCHEMA_SQL = String.raw`
 CREATE TABLE schema_migrations (
   version INTEGER PRIMARY KEY,
@@ -351,7 +353,8 @@ const TASK_UPDATE_GUARD_V2 = INITIAL_SCHEMA_SQL.slice(
 
 export const MIGRATIONS = [
   { version: 1, name: 'initial', sql: INITIAL_SCHEMA_SQL },
-  { version: 2, name: 'task-goal-link', sql: 'ALTER TABLE tasks ADD COLUMN goal_id TEXT NULL REFERENCES goals(id) ON DELETE SET NULL; CREATE INDEX ix_tasks_goal ON tasks(goal_id); DROP TRIGGER trg_task_validate_update;\n' + TASK_UPDATE_GUARD_V2 }
+  { version: 2, name: 'task-goal-link', sql: 'ALTER TABLE tasks ADD COLUMN goal_id TEXT NULL REFERENCES goals(id) ON DELETE SET NULL; CREATE INDEX ix_tasks_goal ON tasks(goal_id); DROP TRIGGER trg_task_validate_update;\n' + TASK_UPDATE_GUARD_V2 },
+  { version: 3, name: 'task-planned-start', sql: TASK_PLANNED_START_SQL }
 ] as const
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version
 export const APPLICATION_ID = 0x5054444f

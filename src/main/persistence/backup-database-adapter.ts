@@ -12,7 +12,7 @@ import { DomainError } from '../domain/errors'
 import type { DateProvider } from '../domain/local-date'
 import { SystemDateProvider } from '../domain/local-date'
 import { DatabaseManager, inspectDatabaseHeader, migrationChecksum } from './database-manager'
-import { assertDomainInvariants, DOMAIN_TABLE_COLUMNS, DOMAIN_TABLE_ORDER } from './domain-validator'
+import { assertDomainInvariants, domainColumnsForSchema, DOMAIN_TABLE_COLUMNS, DOMAIN_TABLE_ORDER } from './domain-validator'
 import { APPLICATION_ID, CURRENT_SCHEMA_VERSION, MIGRATIONS } from './migrations'
 
 const PRODUCT_APPLICATION_ID = 'io.local.personaltodo'
@@ -98,7 +98,7 @@ export class SqliteBackupDatabaseAdapter implements BackupDatabasePort {
       candidate = new DatabaseManager(candidateDatabasePath)
       candidate.immediate((target) => {
         for (const table of DOMAIN_TABLE_ORDER) {
-          const columns = DOMAIN_TABLE_COLUMNS[table].filter((column) => sourceSchemaVersion >= 2 || table !== 'tasks' || column !== 'goal_id')
+          const columns = domainColumnsForSchema(table, sourceSchemaVersion)
           const columnSql = columns.map(quoteIdentifier).join(', ')
           const placeholders = columns.map(() => '?').join(', ')
           const rows = source.prepare(`SELECT ${columnSql} FROM ${quoteIdentifier(table)}`).all() as Array<Record<string, unknown>>
@@ -190,11 +190,18 @@ export function buildIdentity(database: BetterSqlite3.Database, today: string): 
   validatePhysicalAndLedger(database, schemaVersion)
   assertKnownSchemaFingerprint(database, schemaVersion)
   assertDomainInvariants(database, today)
-  // An all-null new relation carries no domain facts. Omitting it keeps legacy
+  // All-null new fields carry no domain facts. Omitting them keeps legacy
   // backup digests identical when imported into the current schema.
   const hasGoalLinks = schemaVersion >= 2 && Boolean(database.prepare('SELECT 1 FROM tasks WHERE goal_id IS NOT NULL LIMIT 1').get())
+  const hasTaskStarts = schemaVersion >= 3 && Boolean(database.prepare('SELECT 1 FROM tasks WHERE planned_start_on IS NOT NULL LIMIT 1').get())
+  const hasHistoryStarts = schemaVersion >= 3 && Boolean(database.prepare('SELECT 1 FROM task_schedule_history WHERE old_planned_start_on IS NOT NULL OR new_planned_start_on IS NOT NULL LIMIT 1').get())
   const tables: CanonicalTable[] = DOMAIN_TABLE_ORDER.map((name) => {
-    const columns = DOMAIN_TABLE_COLUMNS[name].filter((column) => name !== 'tasks' || column !== 'goal_id' || hasGoalLinks)
+    const columns = domainColumnsForSchema(name, schemaVersion).filter((column) => {
+      if (name === 'tasks' && column === 'goal_id') return hasGoalLinks
+      if (column === 'planned_start_on') return hasTaskStarts
+      if (column === 'old_planned_start_on' || column === 'new_planned_start_on') return hasHistoryStarts
+      return true
+    })
     const columnSql = columns.map(quoteIdentifier).join(', ')
     const rows = database.prepare(`SELECT ${columnSql} FROM ${quoteIdentifier(name)}`).all() as Array<Record<string, CanonicalScalar>>
     return { name, primaryKey: PRIMARY_KEYS[name], columns, rows }
@@ -272,19 +279,19 @@ function validatePhysicalAndLedger(database: BetterSqlite3.Database, expectedVer
   }
 }
 
-function assertCurrentSchemaFingerprint(database: BetterSqlite3.Database): void {
-  if (schemaFingerprint(database) !== currentSchemaFingerprint()) {
-    throw new DomainError('BACKUP_CORRUPTED', '数据库 schema 包含未知或被篡改的对象')
+function assertKnownSchemaFingerprint(database: BetterSqlite3.Database, version: number): void {
+  if (schemaFingerprint(database) !== schemaFingerprintForVersion(version)) {
+    throw new DomainError('BACKUP_CORRUPTED', '数据库结构不匹配')
   }
 }
 
-function assertKnownSchemaFingerprint(database: BetterSqlite3.Database, version: number): void {
-  if (version === CURRENT_SCHEMA_VERSION) return assertCurrentSchemaFingerprint(database)
-  if (version !== 1) throw new DomainError('BACKUP_UNSUPPORTED_VERSION', '不支持的数据库版本')
+export function schemaFingerprintForVersion(version: number): string {
+  if (version === CURRENT_SCHEMA_VERSION) return currentSchemaFingerprint()
+  if (!MIGRATIONS.some((migration) => migration.version === version)) throw new DomainError('BACKUP_UNSUPPORTED_VERSION', '不支持的数据库版本')
   const reference = new BetterSqlite3(':memory:')
   try {
-    reference.exec(MIGRATIONS[0].sql)
-    if (schemaFingerprint(database) !== schemaFingerprint(reference)) throw new DomainError('BACKUP_CORRUPTED', '数据库结构不匹配')
+    for (const migration of MIGRATIONS) if (migration.version <= version) reference.exec(migration.sql)
+    return schemaFingerprint(reference)
   } finally { reference.close() }
 }
 

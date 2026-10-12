@@ -17,6 +17,7 @@ export interface CreateTaskInput {
   title: string
   notes?: string | null
   plannedOn?: LocalDate | null
+  plannedStartOn?: LocalDate | null
   projectId?: string | null
   parentTaskId?: string | null
   important?: boolean
@@ -37,6 +38,7 @@ export interface SetTaskScheduleInput {
   id: string
   expectedVersion: number
   plannedOn: LocalDate | null
+  plannedStartOn?: LocalDate | null
 }
 
 export interface ChangeTaskStatusInput {

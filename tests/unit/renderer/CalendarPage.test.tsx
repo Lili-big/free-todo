@@ -61,7 +61,7 @@ describe('CalendarPage', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: '2026年9月4日 周五' })).getByRole('button', { name: '添加任务' }))
 
     expect(await screen.findByRole('dialog', { name: '新建任务' })).toBeInTheDocument()
-    expect(screen.getByLabelText(/计划完成日/)).toHaveValue('2026-09-04')
+    expect(screen.getByLabelText(/计划完成时间/)).toHaveValue('2026-09-04')
     fireEvent.change(screen.getByLabelText(/任务标题/), { target: { value: '选中日期的新任务' } })
     fireEvent.click(screen.getByRole('button', { name: /^创建任务$/ }))
     expect(await screen.findByRole('button', { name: '查看任务“选中日期的新任务”' })).toBeInTheDocument()

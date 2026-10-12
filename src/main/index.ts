@@ -32,7 +32,8 @@ import {
   SqliteBackupDatabaseAdapter,
   CURRENT_SCHEMA_VERSION,
   MIGRATIONS,
-  schemaFingerprint
+  schemaFingerprint,
+  schemaFingerprintForVersion
 } from './persistence'
 import { broadcastBackupProgress, broadcastChange, registerIpcHandlers } from './ipc/registry'
 import {
@@ -431,7 +432,7 @@ function createCompatibilityPolicy(): BackupCompatibilityPolicy {
       currentSchemaVersion: CURRENT_SCHEMA_VERSION,
       supportedSchemaVersions: new Set(MIGRATIONS.map((migration) => migration.version)),
       supportedBackupFormatVersions: new Set([BACKUP_FORMAT_VERSION]),
-      schemaFingerprints: new Map([[CURRENT_SCHEMA_VERSION, fingerprint]])
+      schemaFingerprints: new Map(MIGRATIONS.map(({ version }) => [version, version === CURRENT_SCHEMA_VERSION ? fingerprint : schemaFingerprintForVersion(version)]))
     }
   } finally {
     memory.close()

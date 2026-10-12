@@ -20,7 +20,7 @@ export interface TaskCardViewProps {
   onToggleDone?: () => void
   onCancel?: () => void
   onRestore?: () => void
-  onSchedule?: (plannedOn: string | null) => void
+  onSchedule?: (plannedOn: string | null, plannedStartOn?: string | null) => void
   onNextStep?: () => void
 }
 
@@ -83,10 +83,11 @@ export function TaskCardView({
           {task.recurrenceSeriesId && <span className="tag tag--violet" title="来自重复系列">↻ 重复</span>}
         </span>
         {context && <span className="task-card__context">{context}</span>}
+        {todayRow && task.plannedStartOn && task.plannedOn && <span className="task-card__range" title={`计划开始时间：${task.plannedStartOn} · 计划完成时间：${task.plannedOn}`}>{task.plannedStartOn} → {task.plannedOn}</span>}
         {!todayRow && (
           <span className="task-card__meta">
             <span className={task.isOverdue ? 'date-label is-overdue' : 'date-label'}>
-              {task.isOverdue && '已逾期 · '}{relativeDateLabel(task.plannedOn, today)}
+              {task.isOverdue && '已逾期 · '}{task.plannedStartOn ? `${relativeDateLabel(task.plannedStartOn, today)} → ${task.plannedOn ? relativeDateLabel(task.plannedOn, today) : '未安排完成时间'}` : relativeDateLabel(task.plannedOn, today)}
             </span>
             <QuadrantPips important={task.important} urgent={task.urgent} />
             {isDone && task.completedOn && <span className="tag tag--success">{task.completedOn} 完成</span>}
@@ -100,7 +101,7 @@ export function TaskCardView({
         )}
         {task.status === 'TODO' && onSchedule && (
           scheduling
-            ? <InlineDatePicker value={task.plannedOn} onSelect={(value) => { onSchedule(value); setScheduling(false) }} onClose={() => setScheduling(false)} />
+            ? <InlineDatePicker value={task.plannedOn} startValue={task.plannedStartOn ?? null} onSelect={(value, start) => { onSchedule(value, start); setScheduling(false) }} onClose={() => setScheduling(false)} />
             : <button className="mini-button" type="button" onClick={() => setScheduling(true)} disabled={busy}>日期</button>
         )}
         {task.status === 'TODO' && task.plannedOn && !task.hasChildren && onSchedule && <button className="mini-button" type="button" onClick={() => onSchedule(null)} disabled={busy}>待分配</button>}
@@ -112,18 +113,21 @@ export function TaskCardView({
   )
 }
 
-function InlineDatePicker({ value, onSelect, onClose }: {
+function InlineDatePicker({ value, startValue, onSelect, onClose }: {
   value: string | null
-  onSelect: (value: string) => void
+  startValue: string | null
+  onSelect: (value: string | null, start: string | null) => void
   onClose: () => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
+  const [end, setEnd] = useState(value ?? '')
+  const [start, setStart] = useState(startValue ?? '')
+  const invalidRange = Boolean(start && end && start > end)
 
   useEffect(() => {
     const input = inputRef.current
     input?.focus()
-    try { input?.showPicker() } catch { /* The visible date input remains usable. */ }
   }, [])
 
   useEffect(() => {
@@ -143,15 +147,18 @@ function InlineDatePicker({ value, onSelect, onClose }: {
 
   return (
     <div className="inline-date-editor" ref={editorRef}>
+      <label><span>计划开始时间</span><input aria-label="选择计划开始时间" type="date" value={start} onChange={(event) => setStart(event.currentTarget.value)} /></label>
+      <label><span>计划完成时间</span>
       <input
         ref={inputRef}
-        aria-label="选择计划完成日"
+        aria-label="选择计划完成时间"
         type="date"
-        defaultValue={value ?? ''}
-        onChange={(event) => {
-          if (event.currentTarget.value) onSelect(event.currentTarget.value)
-        }}
+        value={end}
+        onChange={(event) => setEnd(event.currentTarget.value)}
       />
+      </label>
+      {invalidRange && <small className="field-error" role="alert">开始时间不能晚于完成时间</small>}
+      <button className="mini-button mini-button--accent" type="button" disabled={invalidRange} onClick={() => onSelect(end || null, start || null)}>保存时间</button>
     </div>
   )
 }
@@ -214,10 +221,10 @@ export function TaskCard({ task, today, compact, todayRow, hideRestoreAction, sh
     }
   }
 
-  const schedule = async (plannedOn: string | null) => {
+  const schedule = async (plannedOn: string | null, plannedStartOn?: string | null) => {
     setBusy(true)
     try {
-      await todoClient.tasks.schedule(task, plannedOn)
+      await todoClient.tasks.schedule(task, plannedOn, plannedStartOn)
       notify(plannedOn === today ? '已移至今日清单' : plannedOn ? `日期已改为 ${plannedOn}` : '已移至待分配', 'success')
       await refresh()
     } catch (error) {

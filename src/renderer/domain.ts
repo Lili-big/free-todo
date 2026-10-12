@@ -26,6 +26,7 @@ export interface TaskItem {
   title: string
   notes: string | null
   plannedOn: LocalDate | null
+  plannedStartOn?: LocalDate | null
   status: TaskStatus
   completedOn: LocalDate | null
   cancelledOn?: LocalDate | null
@@ -51,6 +52,8 @@ export interface TaskHistoryEvent {
   changedAtUtc?: number
   oldValue: string | null
   newValue: string | null
+  oldPlannedStartOn?: LocalDate | null
+  newPlannedStartOn?: LocalDate | null
 }
 
 export interface TodaySnapshot {
@@ -166,6 +169,7 @@ export interface TaskDraft {
   title: string
   notes?: string | null
   plannedOn?: LocalDate | null
+  plannedStartOn?: LocalDate | null
   projectId?: string | null
   parentTaskId?: string | null
   important?: boolean

@@ -162,7 +162,8 @@ test('待分配任务排到今天后，今日、日历与第四象限指向同�
     await expect(planningTask.locator('.date-label')).toHaveText('待分配')
 
     await planningTask.getByRole('button', { name: '日期' }).click()
-    await planningTask.getByLabel('选择计划完成日').fill(today)
+    await planningTask.getByLabel('选择计划完成时间').fill(today)
+    await planningTask.getByRole('button', { name: '保存时间' }).click()
     await expect(planningTask).toHaveCount(0)
 
     await running.page.getByRole('link', { name: '今日' }).click()
@@ -290,6 +291,85 @@ test('晨间复盘改期与今日四象限拖拽在重启后保留', async () =>
     await page.getByRole('button', { name: '四象限分组' }).click()
     await expect(page.getByRole('region', { name: '重要且紧急象限' }).getByText('整理项目资料')).toBeVisible()
     await expect(page.getByRole('region', { name: '不重要不紧急象限' }).getByText('补齐昨日记录')).toBeVisible()
+  } finally {
+    await closeTodoApp(running)
+    await removeIsolatedLocalAppData(localAppData)
+  }
+})
+
+test('计划开始与完成时间可编辑、跨日归入今日且日历仅落在完成日', async () => {
+  const localAppData = await createIsolatedLocalAppData()
+  let running: RunningTodoApp | null = null
+  try {
+    running = await launchTodoApp(localAppData)
+    let page = running.page
+    const dates = await page.evaluate(async () => {
+      const bootstrap = await window.todoApi.app.getBootstrap()
+      if (!bootstrap.ok) throw new Error(bootstrap.error.message)
+      const today = bootstrap.data.localDate
+      const offset = (days: number) => {
+        const date = new Date(`${today}T12:00:00Z`)
+        date.setUTCDate(date.getUTCDate() + days)
+        return date.toISOString().slice(0, 10)
+      }
+      return { today, start: offset(-1), end: offset(2), invalidStart: offset(3), tomorrow: offset(1) }
+    })
+    await page.getByRole('button', { name: '手动添加' }).click()
+    const composer = page.getByRole('dialog', { name: '新建任务' })
+    await composer.getByLabel(/^任务标题/).fill('准备下一轮迭代')
+    await composer.getByLabel('计划完成时间').fill(dates.end)
+    await composer.getByLabel('计划开始时间').fill(dates.invalidStart)
+    await expect(composer.getByRole('alert')).toHaveText('计划开始时间不能晚于计划完成时间')
+    await expect(composer.getByRole('button', { name: '创建任务' })).toBeDisabled()
+    await composer.getByLabel('计划开始时间').fill(dates.start)
+    await expect(composer.getByLabel('计划开始时间')).not.toHaveAttribute('required')
+    const artifactDirectory = resolve(import.meta.dirname, '../../artifacts/e2e')
+    await mkdir(artifactDirectory, { recursive: true })
+    await page.screenshot({ path: join(artifactDirectory, 'task-schedule.png'), fullPage: true, animations: 'disabled' })
+    await composer.getByRole('button', { name: '创建任务' }).click()
+    let task = page.locator('article.task-card').filter({ hasText: '准备下一轮迭代' })
+    await expect(task).toBeVisible()
+    await expect(task.locator('.task-card__range')).toHaveText(`${dates.start} → ${dates.end}`)
+    const taskId = await page.evaluate(async () => {
+      const result = await window.todoApi.tasks.list({ search: '准备下一轮迭代' })
+      if (!result.ok) throw new Error(result.error.message)
+      return result.data.items.find((item) => item.title === '准备下一轮迭代')!.id
+    })
+    const allocation = await page.evaluate(async ({ start, end }) => {
+      const result = await window.todoApi.calendar.getRange({ startOn: start, endOn: end })
+      if (!result.ok) throw new Error(result.error.message)
+      return result.data.days.flatMap((day) => day.items.flatMap((item) => item.kind === 'TASK' && item.task.title === '准备下一轮迭代' ? [day.date] : []))
+    }, dates)
+    expect(allocation).toEqual([dates.end])
+
+    await task.getByRole('button', { name: '日期' }).click()
+    await task.getByLabel('选择计划开始时间').fill(dates.tomorrow)
+    await task.getByRole('button', { name: '保存时间' }).click()
+    await expect(task).toHaveCount(0)
+    await page.getByRole('button', { name: '手动添加' }).click()
+    await composer.getByLabel(/^任务标题/).fill('只安排了开始的事项')
+    await composer.getByLabel('计划完成时间').clear()
+    await composer.getByLabel('计划开始时间').fill(dates.start)
+    await composer.getByRole('button', { name: '创建任务' }).click()
+    await expect(page.locator('article.task-card').filter({ hasText: '只安排了开始的事项' })).toHaveCount(0)
+    await page.getByRole('link', { name: '待分配', exact: true }).click()
+    await expect(page.locator('article.task-card').filter({ hasText: '只安排了开始的事项' })).toBeVisible()
+    await page.getByRole('link', { name: '日历', exact: true }).click()
+    await expect(page.locator('.calendar-chip').filter({ hasText: '准备下一轮迭代' })).toHaveCount(1)
+    await expect(page.locator('.calendar-chip').filter({ hasText: '只安排了开始的事项' })).toHaveCount(0)
+    await page.evaluate(async ({ id, start, end }) => {
+      const detail = await window.todoApi.tasks.getDetail({ id })
+      if (!detail.ok) throw new Error(detail.error.message)
+      const result = await window.todoApi.tasks.setSchedule({ id, expectedVersion: detail.data.version, plannedStartOn: start, plannedOn: end })
+      if (!result.ok) throw new Error(result.error.message)
+    }, { id: taskId, start: dates.start, end: dates.end })
+    await closeTodoApp(running)
+    running = null
+    running = await launchTodoApp(localAppData)
+    page = running.page
+    task = page.locator('article.task-card').filter({ hasText: '准备下一轮迭代' })
+    await expect(task).toBeVisible()
+    await expect(task.locator('.task-card__range')).toHaveText(`${dates.start} → ${dates.end}`)
   } finally {
     await closeTodoApp(running)
     await removeIsolatedLocalAppData(localAppData)

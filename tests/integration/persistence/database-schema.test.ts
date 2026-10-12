@@ -15,8 +15,8 @@ describe('SQLite schema and migration ledger', () => {
 
   it('keeps the published V1 database identity and migration immutable for in-place upgrades', () => {
     expect(APPLICATION_ID).toBe(0x5054444f)
-    expect(CURRENT_SCHEMA_VERSION).toBe(2)
-    expect(MIGRATIONS).toHaveLength(2)
+    expect(CURRENT_SCHEMA_VERSION).toBe(3)
+    expect(MIGRATIONS).toHaveLength(3)
     expect(migrationChecksum(MIGRATIONS[0].sql)).toBe(
       '838f2eb21672e78e9fe435c23cf8d7d84bdf68174c4ff33681ef14c527ebd1f3'
     )

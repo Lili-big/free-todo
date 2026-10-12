@@ -89,28 +89,31 @@ describe('TaskCardView', () => {
     expect(onOpen).toHaveBeenCalledOnce()
   })
 
-  it('日期弹层选日立即保存，不含取消或清除，并可由外部点击或 Esc 关闭', async () => {
+  it('日期弹层同时编辑开始与完成时间，确认后一起保存，并可由外部点击或 Esc 关闭', async () => {
     const onSchedule = vi.fn()
     render(<TaskCardView task={baseTask} today="2026-09-02" onSchedule={onSchedule} />)
 
     await userEvent.click(screen.getByRole('button', { name: '日期' }))
-    let dateInput = screen.getByLabelText('选择计划完成日')
+    let dateInput = screen.getByLabelText('选择计划完成时间')
     expect(screen.queryByRole('button', { name: '清除' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '取消' })).not.toBeInTheDocument()
 
     // The native picker may move focus internally; blur alone must not tear it down.
     fireEvent.blur(dateInput)
-    expect(screen.getByLabelText('选择计划完成日')).toBeInTheDocument()
+    expect(screen.getByLabelText('选择计划完成时间')).toBeInTheDocument()
     fireEvent.change(dateInput, { target: { value: '2026-09-08' } })
-    expect(onSchedule).toHaveBeenCalledWith('2026-09-08')
-    expect(screen.queryByLabelText('选择计划完成日')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('选择计划开始时间'), { target: { value: '2026-09-03' } })
+    expect(onSchedule).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '保存时间' }))
+    expect(onSchedule).toHaveBeenCalledWith('2026-09-08', '2026-09-03')
+    expect(screen.queryByLabelText('选择计划完成时间')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '日期' }))
     fireEvent.mouseDown(document.body)
-    expect(screen.queryByLabelText('选择计划完成日')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('选择计划完成时间')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '日期' }))
-    dateInput = screen.getByLabelText('选择计划完成日')
+    dateInput = screen.getByLabelText('选择计划完成时间')
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(dateInput).not.toBeInTheDocument()
   })

@@ -129,6 +129,7 @@ export function normalizeTask(value: unknown): TaskItem {
     title: text(item.title, '未命名任务'),
     notes: optionalText(item.notes ?? item.note),
     plannedOn: optionalText(item.plannedOn ?? item.plannedDate),
+    plannedStartOn: optionalText(item.plannedStartOn),
     status: (text(item.status, 'TODO') as TaskItem['status']),
     completedOn: optionalText(item.completedOn ?? item.completedDate),
     cancelledOn: optionalText(item.cancelledOn ?? item.cancelledDate),
@@ -159,7 +160,9 @@ function normalizeHistoryEvent(raw: unknown): TaskHistoryEvent {
     changedOn: text(item.changedOn),
     changedAtUtc: typeof item.changedAtUtc === 'string' ? Date.parse(item.changedAtUtc) : num(item.changedAtUtc),
     oldValue: optionalText(item.oldValue ?? item.oldStatus ?? item.oldPlannedOn),
-    newValue: optionalText(item.newValue ?? item.newStatus ?? item.newPlannedOn)
+    newValue: optionalText(item.newValue ?? item.newStatus ?? item.newPlannedOn),
+    oldPlannedStartOn: optionalText(item.oldPlannedStartOn),
+    newPlannedStartOn: optionalText(item.newPlannedStartOn)
   }
 }
 
@@ -288,6 +291,7 @@ function taskInput(input: TaskDraft): RawRecord {
     title: input.title,
     notes: input.notes ?? null,
     plannedOn: input.plannedOn ?? null,
+    plannedStartOn: input.plannedStartOn ?? null,
     projectId: input.projectId ?? null,
     parentTaskId: input.parentTaskId ?? null,
     important: input.important ?? false,
@@ -413,10 +417,11 @@ export const todoClient = {
       important: input.important ?? false,
       urgent: input.urgent ?? false
     }))),
-    schedule: async (task: TaskItem, plannedOn: string | null) => normalizeTask(mutationValue(await call('tasks.setSchedule', {
+    schedule: async (task: TaskItem, plannedOn: string | null, plannedStartOn?: string | null) => normalizeTask(mutationValue(await call('tasks.setSchedule', {
       id: task.id,
       expectedVersion: task.rowVersion,
-      plannedOn
+      plannedOn,
+      ...(plannedStartOn !== undefined ? { plannedStartOn } : {})
     }))),
     setQuadrant: async (task: TaskItem, important: boolean, urgent: boolean) => normalizeTask(mutationValue(await call('tasks.updateContent', {
       id: task.id,
@@ -437,6 +442,7 @@ export const todoClient = {
       title: input.title,
       notes: input.notes ?? null,
       plannedOn: input.plannedOn ?? null,
+      plannedStartOn: input.plannedStartOn ?? null,
       important: input.important ?? false,
       urgent: input.urgent ?? false
     }))),
@@ -446,6 +452,7 @@ export const todoClient = {
       title: input.title,
       notes: input.notes ?? null,
       plannedOn: input.plannedOn ?? null,
+      plannedStartOn: input.plannedStartOn ?? null,
       important: input.important ?? false,
       urgent: input.urgent ?? false
     }))),

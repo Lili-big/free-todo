@@ -190,8 +190,8 @@ function TaskDrawer({ request, today, onClose, onReplace }: {
                     if ((draft.goalId ?? null) !== (task.goal?.id ?? null) || draft.title !== task.title || (draft.notes ?? null) !== task.notes || Boolean(draft.important) !== task.important || Boolean(draft.urgent) !== task.urgent) {
                       current = await todoClient.tasks.updateContent(current, draft)
                     }
-                    if ((draft.plannedOn ?? null) !== task.plannedOn) {
-                      current = await todoClient.tasks.schedule(current, draft.plannedOn ?? null)
+                    if ((draft.plannedOn ?? null) !== task.plannedOn || (draft.plannedStartOn ?? null) !== (task.plannedStartOn ?? null)) {
+                      current = await todoClient.tasks.schedule(current, draft.plannedOn ?? null, draft.plannedStartOn ?? null)
                     }
                     if (draft.newParentTitle) {
                       await todoClient.tasks.createParentAndAttach(current, draft.newParentTitle)
@@ -332,6 +332,7 @@ function TaskForm({ request, task, today, projects, goals, parentCandidates, bus
   const [title, setTitle] = useState(isEdit ? task?.title ?? '' : request.kind === 'create' ? request.defaultTitle ?? '' : '')
   const [notes, setNotes] = useState(isEdit ? task?.notes ?? '' : '')
   const [plannedOn, setPlannedOn] = useState(initialDate)
+  const [plannedStartOn, setPlannedStartOn] = useState(isEdit ? task?.plannedStartOn ?? '' : '')
   const [projectId, setProjectId] = useState(initialProject)
   const [goalId, setGoalId] = useState(isEdit ? task?.goal?.id ?? '' : request.kind === 'create' ? request.defaultGoalId ?? '' : request.kind === 'next' ? request.source.goal?.id ?? '' : '')
   const [parentId, setParentId] = useState(request.kind === 'create' ? '' : request.kind === 'child' ? request.parent.id : isEdit ? task?.parent?.id ?? '' : '')
@@ -340,9 +341,11 @@ function TaskForm({ request, task, today, projects, goals, parentCandidates, bus
   const [titleError, setTitleError] = useState('')
   const [newParentOpen, setNewParentOpen] = useState(false)
   const [newParentTitle, setNewParentTitle] = useState('')
+  const invalidDateRange = Boolean(plannedStartOn && plannedOn && plannedStartOn > plannedOn)
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
+    if (invalidDateRange) return
     if (!title.trim()) {
       setTitleError('请写下一条清晰的行动或事项')
       return
@@ -351,6 +354,7 @@ function TaskForm({ request, task, today, projects, goals, parentCandidates, bus
       title: title.trim(),
       notes: notes.trim() || null,
       plannedOn: plannedOn || null,
+      plannedStartOn: plannedStartOn || null,
       projectId: projectId || null,
       goalId: goalId || null,
       parentTaskId: parentId || null,
@@ -398,9 +402,15 @@ function TaskForm({ request, task, today, projects, goals, parentCandidates, bus
         </label>
         <label className="field field--full"><span>支撑目标</span><select value={goalId} onChange={(event) => setGoalId(event.target.value)}><option value="">不关联目标</option>{goals.map((goal) => <option key={goal.id} value={goal.id}>{goal.name}</option>)}</select></label>
         <label className="field">
-          <span>计划完成日</span>
-          <input type="date" value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} />
+          <span>计划开始时间</span>
+          <input aria-label="计划开始时间" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? 'task-date-range-error' : undefined} type="date" value={plannedStartOn} onChange={(event) => setPlannedStartOn(event.target.value)} />
+          <small>可不填写；只有开始时间时，任务仍在待分配中。</small>
+        </label>
+        <label className="field">
+          <span>计划完成时间</span>
+          <input aria-label="计划完成时间" aria-invalid={invalidDateRange} aria-describedby={invalidDateRange ? 'task-date-range-error' : undefined} type="date" value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} />
           {plannedOn && <small>{formatDate(plannedOn, { weekday: true })}</small>}
+          {invalidDateRange && <small id="task-date-range-error" className="field-error" role="alert">计划开始时间不能晚于计划完成时间</small>}
         </label>
         <label className="field">
           <span>所属项目</span>
@@ -435,7 +445,7 @@ function TaskForm({ request, task, today, projects, goals, parentCandidates, bus
       <div className="modal-actions modal-actions--spread">
         <button type="button" className="button button--ghost" onClick={onCancel}>取消</button>
         <div className="button-row">
-          <button type="submit" className="button button--primary" disabled={busy}>{busy ? '正在保存…' : isEdit ? '保存修改' : '创建任务'}</button>
+          <button type="submit" className="button button--primary" disabled={busy || invalidDateRange}>{busy ? '正在保存…' : isEdit ? '保存修改' : '创建任务'}</button>
         </div>
       </div>
     </form>

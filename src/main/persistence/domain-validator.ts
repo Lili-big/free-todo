@@ -56,6 +56,7 @@ export const DOMAIN_TABLE_COLUMNS = {
     'title',
     'notes',
     'planned_on',
+    'planned_start_on',
     'status',
     'project_id',
     'parent_task_id',
@@ -72,7 +73,7 @@ export const DOMAIN_TABLE_COLUMNS = {
     'updated_at_utc',
     'row_version'
   ],
-  task_schedule_history: ['event_seq', 'id', 'task_id', 'old_planned_on', 'new_planned_on', 'changed_on', 'changed_at_utc'],
+  task_schedule_history: ['event_seq', 'id', 'task_id', 'old_planned_on', 'new_planned_on', 'changed_on', 'changed_at_utc', 'old_planned_start_on', 'new_planned_start_on'],
   task_status_history: ['event_seq', 'id', 'task_id', 'old_status', 'new_status', 'changed_on', 'changed_at_utc'],
   project_status_history: ['event_seq', 'id', 'project_id', 'old_status', 'new_status', 'changed_on', 'changed_at_utc'],
   goal_status_history: ['event_seq', 'id', 'goal_id', 'old_status', 'new_status', 'changed_on', 'changed_at_utc'],
@@ -81,12 +82,20 @@ export const DOMAIN_TABLE_COLUMNS = {
 
 export const DOMAIN_TABLE_ORDER = Object.keys(DOMAIN_TABLE_COLUMNS) as Array<keyof typeof DOMAIN_TABLE_COLUMNS>
 
+export function domainColumnsForSchema(table: keyof typeof DOMAIN_TABLE_COLUMNS, version: number): string[] {
+  return DOMAIN_TABLE_COLUMNS[table].filter((column) => {
+    if (table === 'tasks' && column === 'goal_id') return version >= 2
+    if (column === 'planned_start_on' || column === 'old_planned_start_on' || column === 'new_planned_start_on') return version >= 3
+    return true
+  })
+}
+
 const DATE_COLUMNS: Partial<Record<keyof typeof DOMAIN_TABLE_COLUMNS, readonly string[]>> = {
   goals: ['period_start_on', 'period_end_on'],
   recurrence_series: ['created_on', 'materialized_through_on'],
   recurrence_rule_versions: ['effective_from_on', 'effective_to_on_exclusive', 'rule_start_on', 'rule_end_on'],
-  tasks: ['planned_on', 'completed_on', 'cancelled_on', 'original_occurrence_on', 'created_on'],
-  task_schedule_history: ['old_planned_on', 'new_planned_on', 'changed_on'],
+  tasks: ['planned_on', 'planned_start_on', 'completed_on', 'cancelled_on', 'original_occurrence_on', 'created_on'],
+  task_schedule_history: ['old_planned_on', 'new_planned_on', 'old_planned_start_on', 'new_planned_start_on', 'changed_on'],
   task_status_history: ['changed_on'],
   project_status_history: ['changed_on'],
   goal_status_history: ['changed_on'],
@@ -99,6 +108,7 @@ const DATE_COLUMNS: Partial<Record<keyof typeof DOMAIN_TABLE_COLUMNS, readonly s
  */
 export function validateDomainInvariants(database: BetterSqlite3.Database, todayValue: string): DomainValidationIssue[] {
   const issues: DomainValidationIssue[] = []
+  const schemaVersion = database.pragma('user_version', { simple: true }) as number
   let today: string
   try {
     today = LocalDate.parse(todayValue).toString()
@@ -107,7 +117,7 @@ export function validateDomainInvariants(database: BetterSqlite3.Database, today
   }
 
   for (const table of DOMAIN_TABLE_ORDER) {
-    const columns = DATE_COLUMNS[table]
+    const columns = DATE_COLUMNS[table]?.filter((column) => domainColumnsForSchema(table, schemaVersion).includes(column))
     if (columns === undefined) continue
     const selected = ['id', 'event_seq', ...columns]
       .filter((column, index, all) => all.indexOf(column) === index && DOMAIN_TABLE_COLUMNS[table].includes(column as never))
@@ -124,6 +134,9 @@ export function validateDomainInvariants(database: BetterSqlite3.Database, today
       }
     }
   }
+
+  if (schemaVersion >= 3) appendQueryIssues(database, issues,
+    'SELECT id FROM tasks WHERE planned_start_on > planned_on', 'INVALID_TASK_DATE_RANGE', 'tasks')
 
   const goals = database
     .prepare('SELECT id, period_kind, period_start_on, period_end_on FROM goals')
@@ -188,6 +201,7 @@ export function validateDomainInvariants(database: BetterSqlite3.Database, today
          task.status = 'TODO' AND task.planned_on = task.original_occurrence_on
          AND task.title = version.title AND task.notes IS version.notes AND task.project_id IS version.project_id
          AND task.is_important = version.is_important AND task.is_urgent = version.is_urgent
+         AND ${schemaVersion >= 3 ? 'task.planned_start_on IS NULL' : '1 = 1'}
        )) OR
        (task.status <> 'TODO' AND task.is_recurrence_exception = 0)
      )`,

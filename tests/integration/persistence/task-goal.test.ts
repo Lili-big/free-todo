@@ -5,7 +5,7 @@ import BetterSqlite3 from 'better-sqlite3'
 import { DatabaseManager, migrationChecksum } from '../../../src/main/persistence/database-manager'
 import { DomainStore } from '../../../src/main/persistence/domain-store'
 import { buildIdentity, SqliteBackupDatabaseAdapter } from '../../../src/main/persistence/backup-database-adapter'
-import { APPLICATION_ID, MIGRATIONS } from '../../../src/main/persistence/migrations'
+import { APPLICATION_ID, CURRENT_SCHEMA_VERSION, MIGRATIONS } from '../../../src/main/persistence/migrations'
 import { FixedDateProvider } from '../../../src/main/domain/local-date'
 
 const dates = new FixedDateProvider('2026-09-08', Date.UTC(2026, 8, 8))
@@ -33,7 +33,7 @@ it('links tasks independently of projects, preserves links on moves, and safely 
       const adapter = new SqliteBackupDatabaseAdapter(manager, dates)
       const source = join(root, 'snapshot.sqlite3')
       await adapter.createConsistentSnapshot(source)
-      const restored = await adapter.importIntoFreshCurrentSchema(source, join(root, 'restored.sqlite3'), 2)
+      const restored = await adapter.importIntoFreshCurrentSchema(source, join(root, 'restored.sqlite3'), CURRENT_SCHEMA_VERSION)
       expect(restored.canonicalDomainDigest).toBe(before.canonicalDomainDigest)
     } finally { rmSync(root, { recursive: true, force: true }) }
     store.removeGoal({ id: goal.id, expectedVersion: goal.version })
@@ -59,11 +59,11 @@ it('imports V1 backups without changing their domain digest and upgrades V1 inst
     const inspected = await adapter.inspectUntrustedReadonly(path, identity)
     expect(inspected.canonicalDomainDigest).toBe(identity.canonicalDomainDigest)
     const imported = await adapter.importIntoFreshCurrentSchema(path, join(root, 'new.sqlite3'), 1)
-    expect(imported.schemaVersion).toBe(2)
+    expect(imported.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(imported.canonicalDomainDigest).toBe(identity.canonicalDomainDigest)
     const upgraded = new DatabaseManager(path)
     try {
-      expect(upgraded.connection.pragma('user_version', { simple: true })).toBe(2)
+      expect(upgraded.connection.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION)
       expect(new DomainStore(upgraded, dates).getTaskDetail('legacy-task')).toMatchObject({ title: '旧版任务', goal: null })
     } finally { upgraded.close() }
   } finally { rmSync(root, { recursive: true, force: true }) }

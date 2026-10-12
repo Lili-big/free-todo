@@ -104,6 +104,7 @@ interface TaskCoreRow {
   title: string
   notes: string | null
   planned_on: string | null
+  planned_start_on: string | null
   status: TaskStatus
   project_id: string | null
   parent_task_id: string | null
@@ -241,7 +242,7 @@ export class DomainStore {
     const overdue = this.taskRows(`task.status = 'TODO' AND task.planned_on < ? AND ${leafPredicate('task')}`, [today]).map((row) =>
       mapTaskRow(row, today)
     )
-    const dueToday = this.taskRows(`task.status = 'TODO' AND task.planned_on = ? AND ${leafPredicate('task')}`, [today]).map((row) =>
+    const dueToday = this.taskRows(`task.status = 'TODO' AND task.planned_on >= ? AND (task.planned_start_on <= ? OR (task.planned_start_on IS NULL AND task.planned_on = ?)) AND ${leafPredicate('task')}`, [today, today, today]).map((row) =>
       mapTaskRow(row, today)
     )
     const completedToday = this.taskRows(`task.status = 'DONE' AND task.completed_on = ? AND ${leafPredicate('task')}`, [today]).map(
@@ -369,7 +370,7 @@ export class DomainStore {
       .all(id) as Array<{ event_seq: number; id: string; changed_on: string; changed_at_utc: number; old_value: string; new_value: string }>
     const scheduleRows = this.databaseManager.connection
       .prepare(
-        `SELECT event_seq, id, changed_on, changed_at_utc, old_planned_on AS old_value, new_planned_on AS new_value
+        `SELECT event_seq, id, changed_on, changed_at_utc, old_planned_on AS old_value, new_planned_on AS new_value, old_planned_start_on, new_planned_start_on
          FROM task_schedule_history WHERE task_id = ?`
       )
       .all(id) as Array<{
@@ -379,6 +380,8 @@ export class DomainStore {
       changed_at_utc: number
       old_value: string | null
       new_value: string | null
+      old_planned_start_on: string | null
+      new_planned_start_on: string | null
     }>
     const history: TaskHistoryEventDto[] = [
       ...statusRows.map((event) => ({
@@ -397,7 +400,9 @@ export class DomainStore {
         changedOn: event.changed_on,
         changedAtUtc: new Date(event.changed_at_utc).toISOString(),
         oldValue: event.old_value,
-        newValue: event.new_value
+        newValue: event.new_value,
+        oldPlannedStartOn: event.old_planned_start_on,
+        newPlannedStartOn: event.new_planned_start_on
       }))
     ].sort((a, b) => a.changedAtUtc.localeCompare(b.changedAtUtc) || a.eventSeq - b.eventSeq)
     return { ...mapTaskRow(row, today), children, history }
@@ -410,6 +415,8 @@ export class DomainStore {
     const title = requireNonBlank(input.title, '任务标题')
     const notes = normalizeOptionalText(input.notes)
     const plannedOn = input.plannedOn == null ? null : this.date(input.plannedOn, 'plannedOn')
+    const plannedStartOn = input.plannedStartOn == null ? null : this.date(input.plannedStartOn, 'plannedStartOn')
+    invariant(!plannedOn || !plannedStartOn || plannedStartOn <= plannedOn, 'VALIDATION_FAILED', '计划开始时间不能晚于计划完成时间')
     return this.mutate(['TODAY', 'REVIEW', 'PLANNING', 'TASKS', 'CALENDAR', 'QUADRANTS', 'PROJECTS'], 'task-created', (database) => {
       let projectId = input.projectId ?? null
       if (input.parentTaskId != null) {
@@ -424,13 +431,13 @@ export class DomainStore {
       database
         .prepare(
           `INSERT INTO tasks(
-            id, title, notes, planned_on, status, project_id, parent_task_id, goal_id,
+            id, title, notes, planned_on, planned_start_on, status, project_id, parent_task_id, goal_id,
             is_important, is_urgent, completed_on, cancelled_on,
             recurrence_series_id, applied_rule_version_id, original_occurrence_on, is_recurrence_exception,
             created_on, created_at_utc, updated_at_utc, row_version
-          ) VALUES (?, ?, ?, ?, 'TODO', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, 0, ?, ?, ?, 1)`
+          ) VALUES (?, ?, ?, ?, ?, 'TODO', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, 0, ?, ?, ?, 1)`
         )
-        .run(id, title, notes, plannedOn, projectId, input.parentTaskId ?? null, input.goalId ?? null, bool(input.important), bool(input.urgent), today, now, now)
+        .run(id, title, notes, plannedOn, plannedStartOn, projectId, input.parentTaskId ?? null, input.goalId ?? null, bool(input.important), bool(input.urgent), today, now, now)
       return this.getTaskDetail(id)
     })
   }
@@ -443,6 +450,7 @@ export class DomainStore {
       title: input.title,
       notes: input.notes,
       plannedOn: input.plannedOn,
+      plannedStartOn: input.plannedStartOn,
       parentTaskId: input.parentId,
       important: input.important,
       urgent: input.urgent
@@ -478,20 +486,23 @@ export class DomainStore {
     return this.mutate(['TODAY', 'REVIEW', 'PLANNING', 'TASKS', 'CALENDAR', 'QUADRANTS', 'PROJECTS'], 'task-scheduled', (database) => {
       const task = this.taskCore(input.id, database)
       this.assertVersion(task.row_version, input.expectedVersion)
+      const plannedStartOn = input.plannedStartOn === undefined ? task.planned_start_on
+        : input.plannedStartOn === null ? null : this.date(input.plannedStartOn, 'plannedStartOn')
+      invariant(!plannedOn || !plannedStartOn || plannedStartOn <= plannedOn, 'VALIDATION_FAILED', '计划开始时间不能晚于计划完成时间')
       database
         .prepare(
-          `UPDATE tasks SET planned_on = ?,
+          `UPDATE tasks SET planned_on = ?, planned_start_on = ?,
             is_recurrence_exception = CASE WHEN recurrence_series_id IS NULL THEN 0 ELSE 1 END,
             updated_at_utc = ?, row_version = row_version + 1 WHERE id = ?`
         )
-        .run(plannedOn, now, task.id)
-      if (task.planned_on !== plannedOn) {
+        .run(plannedOn, plannedStartOn, now, task.id)
+      if (task.planned_on !== plannedOn || task.planned_start_on !== plannedStartOn) {
         database
           .prepare(
-            `INSERT INTO task_schedule_history(id, task_id, old_planned_on, new_planned_on, changed_on, changed_at_utc)
-             VALUES (?, ?, ?, ?, ?, ?)`
+            `INSERT INTO task_schedule_history(id, task_id, old_planned_on, new_planned_on, old_planned_start_on, new_planned_start_on, changed_on, changed_at_utc)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .run(randomUUID(), task.id, task.planned_on, plannedOn, today, now)
+          .run(randomUUID(), task.id, task.planned_on, plannedOn, task.planned_start_on, plannedStartOn, today, now)
       }
       return this.getTaskDetail(task.id)
     })
@@ -646,6 +657,7 @@ export class DomainStore {
       title: input.title,
       notes: input.notes,
       plannedOn: input.plannedOn,
+      plannedStartOn: input.plannedStartOn,
       important: input.important,
       urgent: input.urgent,
       projectId: source.project_id,
@@ -1088,6 +1100,7 @@ export class DomainStore {
         completedOn = null
       } else if (input.action.kind === 'RESCHEDULE') {
         plannedOn = input.action.plannedOn === null ? null : this.date(input.action.plannedOn, 'plannedOn')
+        invariant(!plannedOn || !task.planned_start_on || task.planned_start_on <= plannedOn, 'VALIDATION_FAILED', '计划开始时间不能晚于计划完成时间')
       } else {
         const changes = input.action.changes
         if (changes.title !== undefined) title = requireNonBlank(changes.title, '任务标题')
@@ -1107,10 +1120,10 @@ export class DomainStore {
       if (task.planned_on !== plannedOn) {
         database
           .prepare(
-            `INSERT INTO task_schedule_history(id, task_id, old_planned_on, new_planned_on, changed_on, changed_at_utc)
-             VALUES (?, ?, ?, ?, ?, ?)`
+            `INSERT INTO task_schedule_history(id, task_id, old_planned_on, new_planned_on, old_planned_start_on, new_planned_start_on, changed_on, changed_at_utc)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .run(randomUUID(), task.id, task.planned_on, plannedOn, today, now)
+          .run(randomUUID(), task.id, task.planned_on, plannedOn, task.planned_start_on, task.planned_start_on, today, now)
       }
       if (task.status !== status) {
         database

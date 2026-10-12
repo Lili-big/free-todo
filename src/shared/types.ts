@@ -102,6 +102,7 @@ export interface TaskListItemDto {
   notes?: string | null
   status: TaskStatus
   plannedOn: LocalDate | null
+  plannedStartOn?: LocalDate | null
   completedOn: LocalDate | null
   cancelledOn: LocalDate | null
   important: boolean
@@ -129,6 +130,8 @@ export interface TaskHistoryEventDto {
   changedAtUtc: UtcTimestamp
   oldValue: string | null
   newValue: string | null
+  oldPlannedStartOn?: LocalDate | null
+  newPlannedStartOn?: LocalDate | null
 }
 
 export interface TaskDetailDto extends TaskListItemDto {

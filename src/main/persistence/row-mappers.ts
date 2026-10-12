@@ -9,6 +9,7 @@ export interface TaskJoinedRow {
   notes: string | null
   status: TaskStatus
   planned_on: string | null
+  planned_start_on: string | null
   completed_on: string | null
   cancelled_on: string | null
   is_important: number
@@ -38,6 +39,7 @@ SELECT
   task.notes,
   task.status,
   task.planned_on,
+  task.planned_start_on,
   task.completed_on,
   task.cancelled_on,
   task.is_important,
@@ -71,6 +73,7 @@ export function mapTaskRow(row: TaskJoinedRow, today: string): TaskListItemDto {
     notes: row.notes,
     status: row.status,
     plannedOn: row.planned_on,
+    plannedStartOn: row.planned_start_on,
     completedOn: row.completed_on,
     cancelledOn: row.cancelled_on,
     important: row.is_important === 1,
